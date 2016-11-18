@@ -68,7 +68,11 @@ function App() {
     // (plus accessing sibling methods in prototype function is a bit tricky)
     this.update = function(frame_time) {
         var delta = window.performance.now() - frame_time;
-        this.logic.verticalUpdate(delta);
+        this.logic.inputUpdate(delta);
+        if (this.logic.verticalUpdate(delta) === false) {
+            console.log(this.stopMain);
+            window.cancelAnimationFrame(this.stopMain);
+        }
     }.bind(this);
 
     this.render = function() {
@@ -272,12 +276,12 @@ function Actor(tailCol, tailRow) {
 
     this.hitables = function() {
         var h = [];
-        h.push({ col: tailCol, row: tailRow });
-        h.push({ col: tailCol, row: tailRow - 4 });
-        h.push({ col: tailCol - 1, row: tailRow - 1});
-        h.push({ col: tailCol + 1, row: tailRow - 1});
-        h.push({ col: tailCol - 1, row: tailRow - 3});
-        h.push({ col: tailCol + 1, row: tailRow - 3});
+        h.push({ col: this.tailCol, row: this.tailRow });
+        h.push({ col: this.tailCol, row: this.tailRow - 4 });
+        h.push({ col: this.tailCol - 1, row: this.tailRow - 1});
+        h.push({ col: this.tailCol + 1, row: this.tailRow - 1});
+        h.push({ col: this.tailCol - 1, row: this.tailRow - 3});
+        h.push({ col: this.tailCol + 1, row: this.tailRow - 3});
         return h;
     }.bind(this);
 
@@ -300,6 +304,15 @@ function Actor(tailCol, tailRow) {
     }.bind(this);
 }
 
+function crashed(player, obstacle) {
+    var hits = obstacle.hitables();
+    for (var i in hits) {
+        if (player.hit(hits[i].col, hits[i].row))
+            return true;
+    }
+    return false;
+};
+
 function Logic(config) {
     this.config = config;
     this.wallShift = 0;
@@ -313,6 +326,20 @@ function Logic(config) {
     Object.defineProperty(this, "obstacles", {
         get: function() { return this._obstacles; },
     });
+
+    // Player input
+    this.keysDown = {};
+
+    this.on_keydown = function(e) {
+        this.keysDown[e.keyCode] = true;
+    }.bind(this);
+
+    this.on_keyup = function(e) {
+        delete this.keysDown[e.keyCode];
+    }.bind(this);
+
+    window.addEventListener("keydown", this.on_keydown, false);
+    window.addEventListener("keyup", this.on_keyup, false);
     
     // Returns a random number between min (inclusive) and max (exclusive)
     this.getRandomArbitrary = function(min, max) {
@@ -355,6 +382,11 @@ function Logic(config) {
         this.tailId = id;
     }.bind(this);
 
+    this.checkHit = function(id) {
+        this.headId = (id >= this.obstacles.length - 1) ? 0 : id + 1;
+        return crashed(this._player, this._obstacles[id]);
+    }.bind(this);
+
     // Vertical movement logic
     this.bucket_size = 1.0;    // Controls how fast the game goes
     this._bucket = 0.0;
@@ -370,11 +402,33 @@ function Logic(config) {
             }
             this.wallShift += 1;
             this._bucket = 0;
+            if (this.checkHit(this.headId)) {
+                return false;
+            }
+        }
+        return true;
+    }.bind(this);
+
+    // User input logic
+    this.input_bucket_size = 1.0;
+    this._input_bucket = 0.0;
+
+    this.inputUpdate = function(delta_time) {
+        this._input_bucket += 0.2;
+        if (this._input_bucket >= this.input_bucket_size) {
+            if (37 in this.keysDown && this._player.tailCol > 2) {          // left key
+                this._player.tailCol -= 1;
+            }
+            if (39 in this.keysDown && this._player.tailCol < this.config.columns - 3) {          // right key
+                this._player.tailCol += 1;
+            }
+            this._input_bucket = 0;
         }
     }.bind(this);
 
     this.prepareObstacle(5, 1);
     this.tailId = this.obstacles.length - 1;
+    this.headId = 0;
 }
 
 // Entry point
@@ -386,5 +440,6 @@ function Logic(config) {
         app.update(frame_time);
         app.render();
     }
-    main();
+    main(window.performance.now());
 })();
+)();
