@@ -57,11 +57,13 @@ function App() {
                 return 0;
             },
         },
+        spacing: 6,
+        start: -10,
     };
 
     // Core properties
     this.renderer = new Renderer(this.style, this.config);
-    this.logic = new Logic(this.config);
+    this.logic = new Logic(this);
 
     // Methods
     // It's fine to define them like this unless we create a lot of App object
@@ -69,10 +71,7 @@ function App() {
     this.update = function(frame_time) {
         var delta = window.performance.now() - frame_time;
         this.logic.inputUpdate(delta);
-        if (this.logic.verticalUpdate(delta) === false) {
-            console.log(this.stopMain);
-            window.cancelAnimationFrame(this.stopMain);
-        }
+        this.logic.verticalUpdate(delta);
     }.bind(this);
 
     this.render = function() {
@@ -313,8 +312,9 @@ function crashed(player, obstacle) {
     return false;
 };
 
-function Logic(config) {
-    this.config = config;
+function Logic(app) {
+    this.app = app;
+    this.config = app.config;
     this.wallShift = 0;
 
     // Actors
@@ -362,29 +362,40 @@ function Logic(config) {
         return Math.floor(Math.random() * (max - min + 1)) + min;
     };
 
+    this.getRandomCol = function() {
+        return this.getRandomIntInclusive(2, this.config.columns - 3);
+    }.bind(this);
+
     this.addObstacle = function(col, row) {
         this._obstacles.push(new Actor(col, row));
     }.bind(this);
 
-    this.prepareObstacle = function(spacing, mod) {
-        if (this.obstacles.length === 0) {
-            this.addObstacle(this.getRandomIntInclusive(2, this.config.columns - 3), -1);
+    this.prepareObstacle = function(start, spacing) {
+        for (var i in this.obstacles) {
+            this._obstacles[i].tailCol = this.getRandomCol();
+            this._obstacles[i].tailRow = start - (5 + spacing) * i;
         }
-        var tailId = function() { return this.obstacles.length - 1; }.bind(this);
-        while (this.obstacles[tailId()].tailRow > -1 * (mod * this.config.rows - 5)) {
-            this.addObstacle(this.getRandomIntInclusive(2, this.config.columns - 3), this.obstacles[tailId()].tailRow - 5 - spacing);
-        }
+        this.tailId = this.obstacles.length - 1;
+        this.headId = 0;
     }.bind(this);
 
     this.reuseObstacle = function(id, spacing) {
-        this._obstacles[id].tailCol = this.getRandomIntInclusive(2, this.config.columns - 3);
+        this._obstacles[id].tailCol = this.getRandomCol();
         this._obstacles[id].tailRow = this.obstacles[this.tailId].tailRow - 5 - spacing;
         this.tailId = id;
+        this.headId = (id >= this.obstacles.length - 1) ? 0 : id + 1;
     }.bind(this);
 
     this.checkHit = function(id) {
-        this.headId = (id >= this.obstacles.length - 1) ? 0 : id + 1;
-        return crashed(this._player, this._obstacles[id]);
+        var nextId = (id >= this.obstacles.length - 1) ? 0 : id + 1;
+        var prevId = (id > 0) ? id - 1 : this.obstacles.length - 1;
+        return crashed(this._player, this._obstacles[id]) || 
+            crashed(this._player, this._obstacles[nextId]) ||
+            crashed(this._player, this._obstacles[prevId]);
+    }.bind(this);
+
+    this.onCrash = function() {
+        this.prepareObstacle(this.config.start, this.config.spacing);
     }.bind(this);
 
     // Vertical movement logic
@@ -395,18 +406,17 @@ function Logic(config) {
         this._bucket += 0.2;
         if (this._bucket >= this.bucket_size) {
             for (var i in this._obstacles) {
-                this._obstacles[i].tailRow += 1;
                 if (this.obstacles[i].tailRow - 5 > this.config.rows) {
-                    this.reuseObstacle(i, 5);
+                    this.reuseObstacle(i, this.config.spacing);
                 }
+                this._obstacles[i].tailRow += 1;
             }
             this.wallShift += 1;
             this._bucket = 0;
             if (this.checkHit(this.headId)) {
-                return false;
+                this.onCrash();
             }
         }
-        return true;
     }.bind(this);
 
     // User input logic
@@ -426,9 +436,10 @@ function Logic(config) {
         }
     }.bind(this);
 
-    this.prepareObstacle(5, 1);
-    this.tailId = this.obstacles.length - 1;
-    this.headId = 0;
+    for (var i = 0; i < 5; ++i) {
+        this.addObstacle(this.getRandomCol(), -5 - (5 + 5) * i);
+    }
+    this.prepareObstacle(this.config.start, this.config.spacing);
 }
 
 // Entry point
@@ -442,4 +453,3 @@ function Logic(config) {
     }
     main(window.performance.now());
 })();
-)();
